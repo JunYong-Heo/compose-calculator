@@ -17,98 +17,113 @@ PRECURSORS_DB = {
     "Zr": {"name": "ZrO2",  "mw": 123.22, "n": 1}
 }
 
-st.set_page_config(page_title="AECSL Calc & Export", layout="wide")
-st.title("🔬 PCFC/PCEC Stoichiometry & Export")
+st.set_page_config(page_title="AECSL Multi-Calc", layout="wide")
+st.title("🔬 AECSL Multi-Batch Stoichiometry")
 
-with st.sidebar:
-    st.header("⚙️ 기본 설정")
-    target_mass = st.number_input("목표 합성량 (Total g)", value=5.0, step=0.1)
+# 세션 상태 초기화 (여러 레시피 저장용)
+if 'recipes' not in st.session_state:
+    st.session_state.recipes = []
 
-st.write("### 1. 합성할 원소 선택")
-selected_elements = st.multiselect(
-    "사용할 원소를 선택하세요",
-    options=list(PRECURSORS_DB.keys()),
-    default=["Ba"]
-)
+# --- 1단계: 레시피 설계 및 추가 ---
+with st.expander("➕ 새 레시피 추가하기", expanded=True):
+    col_name, col_mass = st.columns([2, 1])
+    with col_name:
+        sample_name = st.text_input("샘플 이름 (예: BZCYYb_01)", value=f"Sample_{len(st.session_state.recipes)+1}")
+    with col_mass:
+        target_mass = st.number_input("목표 질량 (g)", value=5.0, step=0.1)
 
-if selected_elements:
-    st.write("### 2. 조성 계수(Index) 입력")
-    inputs = {}
-    cols = st.columns(min(len(selected_elements), 4))
+    selected_els = st.multiselect("포함될 원소 선택", options=list(PRECURSORS_DB.keys()), default=["Ba"])
     
-    for i, el in enumerate(selected_elements):
-        with cols[i % 4]:
-            dv = 1.0 if el == "Ba" else 0.0
-            inputs[el] = st.number_input(f"{el} Index", value=dv, format="%.4f", key=f"idx_{el}")
-
-    total_fw = 0
-    base_data = []
-    for el in selected_elements:
-        coeff = inputs[el]
-        if coeff > 0:
-            db = PRECURSORS_DB[el]
-            eff_mw = db["mw"] / db["n"]
-            total_fw += coeff * eff_mw
-            base_data.append({"Element": el, "Precursor": db["name"], "Eff_MW": eff_mw, "Index": coeff})
-
-    if total_fw > 0:
-        for item in base_data:
-            item["Weight (g)"] = (item["Index"] * item["Eff_MW"] / total_fw) * target_mass
+    if selected_els:
+        st.write("조성 계수 입력:")
+        idx_cols = st.columns(min(len(selected_els), 5))
+        current_inputs = {}
+        for i, el in enumerate(selected_els):
+            with idx_cols[i % 5]:
+                dv = 1.0 if el == "Ba" else 0.0
+                current_inputs[el] = st.number_input(f"{el} Index", value=dv, format="%.4f", key=f"new_{el}")
         
-        df_init = pd.DataFrame(base_data)
-        st.divider()
-        st.subheader(f"📊 초기 레시피 (Target: {target_mass}g)")
-        st.table(df_init[["Element", "Precursor", "Index", "Weight (g)"]])
+        if st.button("🚀 목록에 레시피 추가"):
+            # 계산 로직
+            total_fw = 0
+            temp_list = []
+            for el, coeff in current_inputs.items():
+                if coeff > 0:
+                    db = PRECURSORS_DB[el]
+                    eff_mw = db["mw"] / db["n"]
+                    total_fw += coeff * eff_mw
+                    temp_list.append({"Element": el, "Precursor": db["name"], "Eff_MW": eff_mw, "Index": coeff})
+            
+            if total_fw > 0:
+                for item in temp_list:
+                    item["Weight"] = (item["Index"] * item["Eff_MW"] / total_fw) * target_mass
+                
+                st.session_state.recipes.append({
+                    "name": sample_name,
+                    "target_mass": target_mass,
+                    "data": pd.DataFrame(temp_list)
+                })
+                st.rerun()
 
-        # --- 엑셀 파일 생성 ---
+# --- 2단계: 저장된 레시피 목록 및 개별 수정 ---
+if st.session_state.recipes:
+    st.divider()
+    st.subheader(f"📋 관리 중인 레시피 ({len(st.session_state.recipes)}개)")
+    
+    all_dfs_for_excel = []
+
+    for idx, recipe in enumerate(st.session_state.recipes):
+        with st.container():
+            col_title, col_del = st.columns([5, 1])
+            col_title.markdown(f"#### {idx+1}. {recipe['name']} ({recipe['target_mass']}g)")
+            if col_del.button("삭제", key=f"del_{idx}"):
+                st.session_state.recipes.pop(idx)
+                st.rerun()
+
+            # 오차 수정 기능 (개별 레시피마다 적용)
+            df = recipe['data'].copy()
+            with st.expander(f"🔍 {recipe['name']} 상세 및 오차 수정"):
+                st.table(df[["Element", "Precursor", "Index", "Weight"]])
+                
+                err_p = st.selectbox("실수한 시료 선택", df['Precursor'].tolist(), key=f"err_sel_{idx}")
+                orig_w = df.loc[df['Precursor'] == err_p, 'Weight'].values[0]
+                actual_w = st.number_input(f"실제 칭량된 {err_p} 무게 (g)", value=float(orig_w), format="%.5f", key=f"act_w_{idx}")
+                
+                if actual_w > orig_w:
+                    ratio = actual_w / orig_w
+                    st.warning(f"🚨 {ratio:.4f}배 증량됨")
+                    df['New_Total'] = df['Weight'] * ratio
+                    df['Add_More'] = df.apply(lambda x: 0.0 if x['Precursor'] == err_p else x['New_Total'] - x['Weight'], axis=1)
+                    st.dataframe(df[["Precursor", "Weight", "New_Total", "Add_More"]], use_container_width=True)
+                    # 엑셀용 데이터 업데이트
+                    save_df = df.copy()
+                else:
+                    save_df = df[["Element", "Precursor", "Index", "Weight"]].copy()
+                
+                save_df['Sample_Name'] = recipe['name']
+                all_dfs_for_excel.append(save_df)
+
+    # --- 3단계: 통합 엑셀 다운로드 ---
+    if all_dfs_for_excel:
+        st.divider()
+        final_excel_df = pd.concat(all_dfs_for_excel, ignore_index=True)
+        
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            df_init[["Element", "Precursor", "Index", "Weight (g)"]].to_excel(writer, index=False, sheet_name='Recipe')
+            final_excel_df.to_excel(writer, index=False, sheet_name='Batch_Recipe')
             workbook = writer.book
-            worksheet = writer.sheets['Recipe']
+            worksheet = writer.sheets['Batch_Recipe']
             header_format = workbook.add_format({'bold': True, 'bg_color': '#D7E4BC', 'border': 1})
-            for col_num, value in enumerate(df_init[["Element", "Precursor", "Index", "Weight (g)"]].columns.values):
+            for col_num, value in enumerate(final_excel_df.columns.values):
                 worksheet.write(0, col_num, value, header_format)
         
         st.download_button(
-            label="📥 엑셀 파일로 다운로드",
+            label="📥 모든 레시피 통합 엑셀 다운로드",
             data=output.getvalue(),
-            file_name=f"AECSL_Recipe_{target_mass}g.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            file_name="AECSL_Batch_Recipes.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True
         )
 
-        # --- 3단계: 오차 수정 ---
-        st.divider()
-        st.subheader("⚠️ 3. 칭량 오차 수정 (Scale-up)")
-        error_p = st.selectbox("실수한 시료 선택", df_init['Precursor'].tolist())
-        orig_w = df_init.loc[df_init['Precursor'] == error_p, 'Weight (g)'].values[0]
-        actual_w = st.number_input("실제로 넣은 무게 (g)", value=float(orig_w), format="%.5f", key="fix_val")
-
-        if actual_w > orig_w:
-            ratio = actual_w / orig_w
-            st.warning(f"🚨 {ratio:.4f}배 증량 모드")
-            
-            adj_list = []
-            for _, row in df_init.iterrows():
-                new_total = row['Weight (g)'] * ratio
-                is_culprit = (row['Precursor'] == error_p)
-                adj_list.append({
-                    "Precursor": row['Precursor'],
-                    "Original (g)": row['Weight (g)'],
-                    "New Total (g)": round(new_total, 5),
-                    "Add More (추가량)": 0.0 if is_culprit else round(new_total - row['Weight (g)'], 5)
-                })
-            
-            df_adj = pd.DataFrame(adj_list)
-            st.dataframe(df_adj, use_container_width=True)
-
-            output_adj = io.BytesIO()
-            with pd.ExcelWriter(output_adj, engine='xlsxwriter') as writer:
-                df_adj.to_excel(writer, index=False, sheet_name='Adjusted_Recipe')
-            
-            st.download_button(
-                label="📥 수정된 레시피 다운로드",
-                data=output_adj.getvalue(),
-                file_name=f"AECSL_Adjusted_{target_mass * ratio:.1f}g.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
+else:
+    st.info("아직 추가된 레시피가 없습니다. 위에서 '새 레시피 추가하기'를 이용해 주세요.")
