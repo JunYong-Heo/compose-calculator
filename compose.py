@@ -100,43 +100,29 @@ if st.session_state.recipes:
             with st.expander(f"🔍 상세 정보 및 수정"):
                 st.table(df[["Element", "Precursor", "MW", "Index", "Weight"]])
                 
-                st.write("---")
-                st.write("**칭량 실수 시 아래를 입력하세요:**")
                 err_p = st.selectbox("실수한 시료 선택", df['Precursor'].tolist(), key=f"err_sel_{idx}")
                 orig_w = df.loc[df['Precursor'] == err_p, 'Weight'].values[0]
                 actual_w = st.number_input(f"실제로 넣은 {err_p} 무게 (g)", value=float(orig_w), format="%.5f", key=f"act_w_{idx}")
                 
                 final_total = recipe['target_mass']
-                
-                # 수정 로직 및 화면 출력 보강
                 if actual_w > orig_w:
                     ratio = actual_w / orig_w
                     final_total = recipe['target_mass'] * ratio
-                    
-                    st.warning(f"🚨 오차 감지: 모든 성분을 {ratio:.4f}배 증량합니다. (최종 목표: {final_total:.4f}g)")
-                    
-                    # 수정된 무게 계산
-                    df_adj = df.copy()
-                    df_adj['New Total(g)'] = df_adj['Weight'] * ratio
-                    df_adj['Add More(g)'] = df_adj.apply(lambda x: 0.0 if x['Precursor'] == err_p else x['New Total(g)'] - x['Weight'], axis=1)
-                    
-                    st.write("**[수정 레시피: 추가로 더 넣어야 할 양]**")
-                    st.dataframe(df_adj[["Precursor", "Weight", "New Total(g)", "Add More(g)"]].style.format(precision=4), use_container_width=True)
-                    
-                    # 엑셀 저장을 위해 df 업데이트
-                    df['Weight'] = df_adj['New Total(g)']
-                
-                # 엑셀용 데이터 수집
+                    st.warning(f"🚨 오차 감지: 모든 성분을 {ratio:.4f}배 증량합니다.")
+                    df['Weight'] = df['Weight'] * ratio
+
                 w_row = {"Sample Name": recipe['name'], "Total(g)": round(final_total, 4)}
                 idx_row = {"Sample Name": recipe['name']}
                 for _, r in df.iterrows():
                     precursor_info[r['Precursor']] = {"MW": round(r['MW'], 2), "Eff_MW": round(r['Eff_MW'], 2)}
                     w_row[r['Precursor']] = round(r['Weight'], 4)
-                    idx_row[r['Precursor']] = round(r['Index'], 4)
+                    # 4번 표를 위해 프리커서가 아닌 원소명(Element)을 키로 사용
+                    idx_row[r['Element']] = round(r['Index'], 4)
+                
                 weight_rows.append(w_row)
                 index_rows.append(idx_row)
 
-    # --- 3단계: 엑셀 다운로드 (기존과 동일) ---
+    # --- 3단계: 최종 엑셀 다운로드 (자동 열 너비 조절 포함) ---
     if weight_rows:
         st.divider()
         output = io.BytesIO()
@@ -153,22 +139,34 @@ if st.session_state.recipes:
             for r, (p_name, vals) in enumerate(precursor_info.items(), start=2):
                 worksheet.write(r, 0, p_name, cell_fmt); worksheet.write(r, 1, vals["MW"], cell_fmt); worksheet.write(r, 2, vals["Eff_MW"], cell_fmt)
 
-            # 3. Weighing (오른쪽)
+            # 3. Weighing Recipes
             start_col = 4
             worksheet.write(0, start_col, "3. Weighing Recipes (g)", title_fmt)
             df_weights = pd.DataFrame(weight_rows)
             for c, col_name in enumerate(df_weights.columns):
                 worksheet.write(1, start_col + c, col_name, head_fmt)
-                for r, val in enumerate(df_weights[col_name], start=2): worksheet.write(r, start_col + c, val if pd.notna(val) else "-", cell_fmt)
+                for r, val in enumerate(df_weights[col_name], start=2):
+                    worksheet.write(r, start_col + c, val if pd.notna(val) else "-", cell_fmt)
 
-            # 4. Indices (아래쪽)
+            # 4. Composition Indices (원소명으로 표시)
             idx_start_row = len(df_weights) + 4
-            worksheet.write(idx_start_row, start_col, "4. Composition Indices", title_fmt)
+            worksheet.write(idx_start_row, start_col, "4. Composition Indices (By Element)", title_fmt)
             df_indices = pd.DataFrame(index_rows)
             for c, col_name in enumerate(df_indices.columns):
                 worksheet.write(idx_start_row + 1, start_col + c, col_name, head_fmt)
-                for r, val in enumerate(df_indices[col_name], start=idx_start_row + 2): worksheet.write(r, start_col + c, val if pd.notna(val) else "-", cell_fmt)
+                for r, val in enumerate(df_indices[col_name], start=idx_start_row + 2):
+                    worksheet.write(r, start_col + c, val if pd.notna(val) else "-", cell_fmt)
 
-            worksheet.set_column(0, 25, 15)
+            # [자동 열 너비 조절 로직]
+            # 모든 데이터를 순회하며 가장 긴 텍스트의 길이를 계산하여 열 너비 설정
+            all_dfs = [pd.DataFrame([{"Precursor": k, **v} for k, v in precursor_info.items()]), df_weights, df_indices]
+            # 편의상 전체 시트의 열 너비를 내용에 맞춰 조정
+            for i, col in enumerate(df_weights.columns):
+                column_len = max(df_weights[col].astype(str).map(len).max(), len(col)) + 2
+                worksheet.set_column(start_col + i, start_col + i, column_len)
+            
+            # 앞쪽 시료 정보 열 너비도 조정
+            worksheet.set_column(0, 0, 20) # Precursor 이름은 보통 길어서 20으로 고정
+            worksheet.set_column(1, 2, 10) # MW 등은 10으로 고정
 
         st.download_button(label="📥 최종 보고서 엑셀 다운로드", data=output.getvalue(), file_name="AECSL_Auto_Recipe.xlsx", use_container_width=True)
