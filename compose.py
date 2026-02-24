@@ -18,7 +18,7 @@ PRECURSORS_DB = {
 }
 
 st.set_page_config(page_title="AECSL Multi-Calc", layout="wide")
-st.title("🔬 AECSL Multi-Batch Stoichiometry")
+st.title("🔬 AECSL Batch Recipe Manager")
 
 if 'recipes' not in st.session_state:
     st.session_state.recipes = []
@@ -74,7 +74,10 @@ if st.session_state.recipes:
     st.divider()
     st.subheader(f"📋 관리 중인 레시피 ({len(st.session_state.recipes)}개)")
     
-    export_rows = []
+    # 엑셀 생성을 위한 데이터 수집함
+    mw_dict = {}
+    eff_mw_dict = {}
+    weight_rows = []
 
     for idx, recipe in enumerate(st.session_state.recipes):
         with st.container():
@@ -85,56 +88,71 @@ if st.session_state.recipes:
                 st.rerun()
 
             df = recipe['data'].copy()
-            with st.expander(f"🔍 {recipe['name']} 상세"):
+            with st.expander(f"🔍 {recipe['name']} 상세 및 수정"):
                 st.table(df[["Element", "Precursor", "Index", "Weight"]])
                 
                 err_p = st.selectbox("실수한 시료 선택", df['Precursor'].tolist(), key=f"err_sel_{idx}")
                 orig_w = df.loc[df['Precursor'] == err_p, 'Weight'].values[0]
                 actual_w = st.number_input(f"실제 무게 (g)", value=float(orig_w), format="%.5f", key=f"act_w_{idx}")
                 
-                final_total_mass = recipe['target_mass']
+                final_total = recipe['target_mass']
                 if actual_w > orig_w:
                     ratio = actual_w / orig_w
-                    final_total_mass = recipe['target_mass'] * ratio
-                    df['Weight'] = df['Weight'] * ratio # 수정된 무게로 업데이트
-                
-                # 엑셀 출력을 위한 데이터 정리 (샘플별 한 행으로 변환)
-                row_data = {"Sample_Name": recipe['name'], "Total_Mass(g)": round(final_total_mass, 4)}
-                for _, r in df.iterrows():
-                    prefix = f"{r['Element']}({r['Precursor']})"
-                    row_data[f"{prefix}_MW"] = r['MW']
-                    row_data[f"{prefix}_Eff_MW"] = r['Eff_MW']
-                    row_data[f"{prefix}_Index"] = r['Index']
-                    row_data[f"{prefix}_Weight(g)"] = round(r['Weight'], 5)
-                
-                export_rows.append(row_data)
+                    final_total = recipe['target_mass'] * ratio
+                    df['Weight'] = df['Weight'] * ratio
 
-    # --- 3단계: 개선된 가로형 엑셀 다운로드 ---
-    if export_rows:
+                # 데이터 수집 (엑셀용)
+                w_row = {"Sample Name": recipe['name'], "Total Mass(g)": round(final_total, 4)}
+                for _, r in df.iterrows():
+                    mw_dict[r['Precursor']] = r['MW']
+                    eff_mw_dict[r['Precursor']] = r['Eff_MW']
+                    w_row[r['Precursor']] = round(r['Weight'], 5)
+                weight_rows.append(w_row)
+
+    # --- 3단계: 구조화된 엑셀 다운로드 ---
+    if weight_rows:
         st.divider()
-        final_df = pd.DataFrame(export_rows)
         
+        # 엑셀 파일 생성
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            final_df.to_excel(writer, index=False, sheet_name='Batch_Summary')
-            
             workbook = writer.book
-            worksheet = writer.sheets['Batch_Summary']
+            sheet_name = 'Batch_Recipe'
             
-            # 셀 서식
-            header_format = workbook.add_format({'bold': True, 'bg_color': '#D7E4BC', 'border': 1, 'align': 'center'})
-            num_format = workbook.add_format({'align': 'center', 'border': 1})
+            # 스타일 설정
+            head_fmt = workbook.add_format({'bold': True, 'bg_color': '#D7E4BC', 'border': 1, 'align': 'center'})
+            title_fmt = workbook.add_format({'bold': True, 'font_size': 14, 'font_color': '#2E75B6'})
+            cell_fmt = workbook.add_format({'border': 1, 'align': 'center'})
+
+            # 데이터프레임 변환
+            df_mw = pd.DataFrame([mw_dict]).rename(index={0: 'Molecular Weight (g/mol)'})
+            df_eff = pd.DataFrame([eff_mw_dict]).rename(index={0: 'Effective MW (g/mol)'})
+            df_weights = pd.DataFrame(weight_rows)
+
+            # 1. 분자량 표 (MW)
+            worksheet = workbook.add_worksheet(sheet_name)
+            writer.sheets[sheet_name] = worksheet
             
-            for col_num, value in enumerate(final_df.columns.values):
-                worksheet.write(0, col_num, value, header_format)
-                worksheet.set_column(col_num, col_num, 15, num_format)
+            worksheet.write(0, 0, "1. Precursor Information (Pure MW)", title_fmt)
+            df_mw.to_excel(writer, sheet_name=sheet_name, startrow=1)
+            
+            # 2. 환산 분자량 표 (Eff_MW)
+            worksheet.write(4, 0, "2. Effective Molecular Weight (MW / n)", title_fmt)
+            df_eff.to_excel(writer, sheet_name=sheet_name, startrow=5)
+            
+            # 3. 샘플별 칭량 레시피 표 (Weights)
+            worksheet.write(9, 0, "3. Sample Weighing Recipes (g)", title_fmt)
+            df_weights.to_excel(writer, sheet_name=sheet_name, startrow=10, index=False)
+            
+            # 열 너비 조정
+            worksheet.set_column(0, 20, 18)
 
         st.download_button(
-            label="📥 통합 레시피 엑셀 다운로드 (가로형)",
+            label="📥 구조화된 통합 엑셀 다운로드",
             data=output.getvalue(),
-            file_name="AECSL_Batch_Analysis.xlsx",
+            file_name="AECSL_Batch_Recipe_Structured.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True
         )
 else:
-    st.info("레시피를 추가해 주세요.")
+    st.info("실험할 샘플들을 먼저 추가해 주세요.")
