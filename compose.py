@@ -69,6 +69,7 @@ if st.session_state.recipes:
     
     precursor_info = {}
     weight_rows = []
+    index_rows = []
 
     for idx, recipe in enumerate(st.session_state.recipes):
         with st.container():
@@ -80,7 +81,9 @@ if st.session_state.recipes:
 
             df = recipe['data'].copy()
             with st.expander(f"🔍 {recipe['name']} 상세 및 수정"):
-                st.table(df[["Element", "Precursor", "Index", "Weight"]])
+                # 화면 표에 MW 열 추가
+                st.table(df[["Element", "Precursor", "MW", "Index", "Weight"]])
+                
                 err_p = st.selectbox("실수한 시료 선택", df['Precursor'].tolist(), key=f"err_sel_{idx}")
                 orig_w = df.loc[df['Precursor'] == err_p, 'Weight'].values[0]
                 actual_w = st.number_input(f"실제 무게 (g)", value=float(orig_w), format="%.5f", key=f"act_w_{idx}")
@@ -91,13 +94,19 @@ if st.session_state.recipes:
                     final_total = recipe['target_mass'] * ratio
                     df['Weight'] = df['Weight'] * ratio
 
+                # 엑셀용 데이터 수집
                 w_row = {"Sample Name": recipe['name'], "Total(g)": round(final_total, 4)}
+                idx_row = {"Sample Name": recipe['name']}
+                
                 for _, r in df.iterrows():
                     precursor_info[r['Precursor']] = {"MW": round(r['MW'], 2), "Eff_MW": round(r['Eff_MW'], 2)}
                     w_row[r['Precursor']] = round(r['Weight'], 4)
+                    idx_row[r['Precursor']] = round(r['Index'], 4)
+                
                 weight_rows.append(w_row)
+                index_rows.append(idx_row)
 
-    # --- 3단계: 최종 엑셀 다운로드 (병렬 레이아웃) ---
+    # --- 3단계: 최종 엑셀 다운로드 ---
     if weight_rows:
         st.divider()
         output = io.BytesIO()
@@ -105,38 +114,48 @@ if st.session_state.recipes:
             workbook = writer.book
             worksheet = workbook.add_worksheet('Batch_Recipe')
             
-            # 스타일
+            # 스타일 설정
             head_fmt = workbook.add_format({'bold': True, 'bg_color': '#D7E4BC', 'border': 1, 'align': 'center'})
             cell_fmt = workbook.add_format({'border': 1, 'align': 'center'})
             title_fmt = workbook.add_format({'bold': True, 'font_size': 12, 'font_color': '#2E75B6'})
 
-            # 1 & 2. 시료 정보 (세로형)
+            # 1 & 2. 시료 정보 (A~C열)
             worksheet.write(0, 0, "1&2. Precursor Info", title_fmt)
             info_headers = ["Precursor", "MW", "Eff_MW"]
             for c, h in enumerate(info_headers):
                 worksheet.write(1, c, h, head_fmt)
             
+            last_row = 1
             for r, (p_name, vals) in enumerate(precursor_info.items(), start=2):
                 worksheet.write(r, 0, p_name, cell_fmt)
                 worksheet.write(r, 1, vals["MW"], cell_fmt)
                 worksheet.write(r, 2, vals["Eff_MW"], cell_fmt)
+                last_row = r
 
-            # 3. 샘플별 칭량 레시피 (오른쪽 병렬 배치)
-            df_weights = pd.DataFrame(weight_rows)
+            # 3. 샘플별 칭량 레시피 (E열부터)
             start_col = 4
             worksheet.write(0, start_col, "3. Weighing Recipes (g)", title_fmt)
-            
+            df_weights = pd.DataFrame(weight_rows)
             for c, col_name in enumerate(df_weights.columns):
                 worksheet.write(1, start_col + c, col_name, head_fmt)
                 for r, val in enumerate(df_weights[col_name], start=2):
                     worksheet.write(r, start_col + c, val if pd.notna(val) else "-", cell_fmt)
 
+            # 4. 샘플별 조성 계수 (Index) 표 (3번 표 아래에 배치)
+            idx_start_row = len(df_weights) + 4
+            worksheet.write(idx_start_row, start_col, "4. Sample Composition Indices (Index)", title_fmt)
+            df_indices = pd.DataFrame(index_rows)
+            for c, col_name in enumerate(df_indices.columns):
+                worksheet.write(idx_start_row + 1, start_col + c, col_name, head_fmt)
+                for r, val in enumerate(df_indices[col_name], start=idx_start_row + 2):
+                    worksheet.write(r, start_col + c, val if pd.notna(val) else "-", cell_fmt)
+
             worksheet.set_column(0, 20, 15)
 
         st.download_button(
-            label="📥 최종 엑셀 다운로드",
+            label="📥 최종 엑셀 다운로드 (MW & Index 포함)",
             data=output.getvalue(),
-            file_name="AECSL_Structured_Recipe.xlsx",
+            file_name="AECSL_Full_Recipe_Report.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True
         )
