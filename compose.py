@@ -51,32 +51,23 @@ with st.expander("➕ 새 레시피 추가하기", expanded=True):
                     eff_mw = db["mw"] / db["n"]
                     total_fw += coeff * eff_mw
                     temp_list.append({
-                        "Element": el, 
-                        "Precursor": db["name"], 
-                        "MW": db["mw"],
-                        "Eff_MW": eff_mw, 
-                        "Index": coeff
+                        "Element": el, "Precursor": db["name"], "MW": db["mw"],
+                        "Eff_MW": eff_mw, "Index": coeff
                     })
             
             if total_fw > 0:
                 for item in temp_list:
                     item["Weight"] = (item["Index"] * item["Eff_MW"] / total_fw) * target_mass
                 
-                st.session_state.recipes.append({
-                    "name": sample_name,
-                    "target_mass": target_mass,
-                    "data": pd.DataFrame(temp_list)
-                })
+                st.session_state.recipes.append({"name": sample_name, "target_mass": target_mass, "data": pd.DataFrame(temp_list)})
                 st.rerun()
 
-# --- 2단계: 저장된 목록 및 개별 수정 ---
+# --- 2단계: 저장된 목록 및 수정 ---
 if st.session_state.recipes:
     st.divider()
     st.subheader(f"📋 관리 중인 레시피 ({len(st.session_state.recipes)}개)")
     
-    # 엑셀 생성을 위한 데이터 수집함
-    mw_dict = {}
-    eff_mw_dict = {}
+    precursor_info = {}
     weight_rows = []
 
     for idx, recipe in enumerate(st.session_state.recipes):
@@ -90,7 +81,6 @@ if st.session_state.recipes:
             df = recipe['data'].copy()
             with st.expander(f"🔍 {recipe['name']} 상세 및 수정"):
                 st.table(df[["Element", "Precursor", "Index", "Weight"]])
-                
                 err_p = st.selectbox("실수한 시료 선택", df['Precursor'].tolist(), key=f"err_sel_{idx}")
                 orig_w = df.loc[df['Precursor'] == err_p, 'Weight'].values[0]
                 actual_w = st.number_input(f"실제 무게 (g)", value=float(orig_w), format="%.5f", key=f"act_w_{idx}")
@@ -101,58 +91,54 @@ if st.session_state.recipes:
                     final_total = recipe['target_mass'] * ratio
                     df['Weight'] = df['Weight'] * ratio
 
-                # 데이터 수집 (엑셀용)
-                w_row = {"Sample Name": recipe['name'], "Total Mass(g)": round(final_total, 4)}
+                w_row = {"Sample Name": recipe['name'], "Total(g)": round(final_total, 4)}
                 for _, r in df.iterrows():
-                    mw_dict[r['Precursor']] = r['MW']
-                    eff_mw_dict[r['Precursor']] = r['Eff_MW']
-                    w_row[r['Precursor']] = round(r['Weight'], 5)
+                    precursor_info[r['Precursor']] = {"MW": round(r['MW'], 2), "Eff_MW": round(r['Eff_MW'], 2)}
+                    w_row[r['Precursor']] = round(r['Weight'], 4)
                 weight_rows.append(w_row)
 
-    # --- 3단계: 구조화된 엑셀 다운로드 ---
+    # --- 3단계: 최종 엑셀 다운로드 (병렬 레이아웃) ---
     if weight_rows:
         st.divider()
-        
-        # 엑셀 파일 생성
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
             workbook = writer.book
-            sheet_name = 'Batch_Recipe'
+            worksheet = workbook.add_worksheet('Batch_Recipe')
             
-            # 스타일 설정
+            # 스타일
             head_fmt = workbook.add_format({'bold': True, 'bg_color': '#D7E4BC', 'border': 1, 'align': 'center'})
-            title_fmt = workbook.add_format({'bold': True, 'font_size': 14, 'font_color': '#2E75B6'})
             cell_fmt = workbook.add_format({'border': 1, 'align': 'center'})
+            title_fmt = workbook.add_format({'bold': True, 'font_size': 12, 'font_color': '#2E75B6'})
 
-            # 데이터프레임 변환
-            df_mw = pd.DataFrame([mw_dict]).rename(index={0: 'Molecular Weight (g/mol)'})
-            df_eff = pd.DataFrame([eff_mw_dict]).rename(index={0: 'Effective MW (g/mol)'})
+            # 1 & 2. 시료 정보 (세로형)
+            worksheet.write(0, 0, "1&2. Precursor Info", title_fmt)
+            info_headers = ["Precursor", "MW", "Eff_MW"]
+            for c, h in enumerate(info_headers):
+                worksheet.write(1, c, h, head_fmt)
+            
+            for r, (p_name, vals) in enumerate(precursor_info.items(), start=2):
+                worksheet.write(r, 0, p_name, cell_fmt)
+                worksheet.write(r, 1, vals["MW"], cell_fmt)
+                worksheet.write(r, 2, vals["Eff_MW"], cell_fmt)
+
+            # 3. 샘플별 칭량 레시피 (오른쪽 병렬 배치)
             df_weights = pd.DataFrame(weight_rows)
+            start_col = 4
+            worksheet.write(0, start_col, "3. Weighing Recipes (g)", title_fmt)
+            
+            for c, col_name in enumerate(df_weights.columns):
+                worksheet.write(1, start_col + c, col_name, head_fmt)
+                for r, val in enumerate(df_weights[col_name], start=2):
+                    worksheet.write(r, start_col + c, val if pd.notna(val) else "-", cell_fmt)
 
-            # 1. 분자량 표 (MW)
-            worksheet = workbook.add_worksheet(sheet_name)
-            writer.sheets[sheet_name] = worksheet
-            
-            worksheet.write(0, 0, "1. Precursor Information (Pure MW)", title_fmt)
-            df_mw.to_excel(writer, sheet_name=sheet_name, startrow=1)
-            
-            # 2. 환산 분자량 표 (Eff_MW)
-            worksheet.write(4, 0, "2. Effective Molecular Weight (MW / n)", title_fmt)
-            df_eff.to_excel(writer, sheet_name=sheet_name, startrow=5)
-            
-            # 3. 샘플별 칭량 레시피 표 (Weights)
-            worksheet.write(9, 0, "3. Sample Weighing Recipes (g)", title_fmt)
-            df_weights.to_excel(writer, sheet_name=sheet_name, startrow=10, index=False)
-            
-            # 열 너비 조정
-            worksheet.set_column(0, 20, 18)
+            worksheet.set_column(0, 20, 15)
 
         st.download_button(
-            label="📥 구조화된 통합 엑셀 다운로드",
+            label="📥 최종 엑셀 다운로드",
             data=output.getvalue(),
-            file_name="AECSL_Batch_Recipe_Structured.xlsx",
+            file_name="AECSL_Structured_Recipe.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True
         )
 else:
-    st.info("실험할 샘플들을 먼저 추가해 주세요.")
+    st.info("레시피를 추가해 주세요.")
