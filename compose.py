@@ -37,7 +37,7 @@ with st.expander("➕ 새 레시피 추가하기", expanded=True):
         st.write("조성 계수 입력:")
         idx_cols = st.columns(min(len(selected_els), 5))
         current_inputs = {}
-        for i, el in enumerate(selected_els):
+        for i, el in enumerate(selected_elements := selected_els):
             with idx_cols[i % 5]:
                 dv = 1.0 if el == "Ba" else 0.0
                 current_inputs[el] = st.number_input(f"{el} Index", value=dv, format="%.4f", key=f"new_{el}")
@@ -46,7 +46,7 @@ with st.expander("➕ 새 레시피 추가하기", expanded=True):
         is_integer = (total_idx % 1 == 0)
         
         if not is_integer:
-            st.warning(f"⚠️ 현재 Index의 합이 {total_idx:.4f}입니다. 정수인지 확인하세요!")
+            st.warning(f"⚠️ 현재 Index의 합이 {total_idx:.4f}입니다.")
 
         if st.button("🚀 목록에 레시피 추가"):
             if not sample_name_input.strip():
@@ -88,7 +88,7 @@ if st.session_state.recipes:
         with st.container():
             col_title, col_del = st.columns([5, 1])
             if not recipe["is_int"]:
-                col_title.warning(f"⚠️ {idx+1}. {recipe['name']} (Index 합 확인 필요)")
+                col_title.warning(f"⚠️ {idx+1}. {recipe['name']} (Index 합 확인)")
             else:
                 col_title.markdown(f"#### {idx+1}. {recipe['name']}")
             
@@ -100,73 +100,69 @@ if st.session_state.recipes:
             with st.expander(f"🔍 상세 정보 및 수정"):
                 st.table(df[["Element", "Precursor", "MW", "Index", "Weight"]])
                 
-                err_p = st.selectbox("실수한 시료 선택", df['Precursor'].tolist(), key=f"err_sel_{idx}")
+                err_p = st.selectbox("실수한 시료", df['Precursor'].tolist(), key=f"err_sel_{idx}")
                 orig_w = df.loc[df['Precursor'] == err_p, 'Weight'].values[0]
-                actual_w = st.number_input(f"실제로 넣은 {err_p} 무게 (g)", value=float(orig_w), format="%.5f", key=f"act_w_{idx}")
+                actual_w = st.number_input(f"실제 무게 (g)", value=float(orig_w), format="%.5f", key=f"act_w_{idx}")
                 
                 final_total = recipe['target_mass']
                 if actual_w > orig_w:
                     ratio = actual_w / orig_w
                     final_total = recipe['target_mass'] * ratio
-                    st.warning(f"🚨 오차 감지: 모든 성분을 {ratio:.4f}배 증량합니다.")
                     df['Weight'] = df['Weight'] * ratio
 
                 w_row = {"Sample Name": recipe['name'], "Total(g)": round(final_total, 4)}
                 idx_row = {"Sample Name": recipe['name']}
                 for _, r in df.iterrows():
-                    precursor_info[r['Precursor']] = {"MW": round(r['MW'], 2), "Eff_MW": round(r['Eff_MW'], 2)}
-                    w_row[r['Precursor']] = round(r['Weight'], 4)
-                    # 4번 표를 위해 프리커서가 아닌 원소명(Element)을 키로 사용
-                    idx_row[r['Element']] = round(r['Index'], 4)
+                    precursor_info[r['Precursor']] = {"MW": r['MW'], "Eff_MW": r['Eff_MW']}
+                    w_row[r['Precursor']] = r['Weight']
+                    idx_row[r['Element']] = r['Index']
                 
                 weight_rows.append(w_row)
                 index_rows.append(idx_row)
 
-    # --- 3단계: 최종 엑셀 다운로드 (자동 열 너비 조절 포함) ---
+    # --- 3단계: 엑셀 다운로드 (소수점 4자리 서식 고정) ---
     if weight_rows:
         st.divider()
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
             workbook = writer.book
             worksheet = workbook.add_worksheet('Batch_Recipe')
+            
+            # 서식 설정
             head_fmt = workbook.add_format({'bold': True, 'bg_color': '#D7E4BC', 'border': 1, 'align': 'center'})
-            cell_fmt = workbook.add_format({'border': 1, 'align': 'center'})
             title_fmt = workbook.add_format({'bold': True, 'font_size': 12, 'font_color': '#2E75B6'})
+            
+            # 소수점 서식 (핵심!)
+            mw_fmt = workbook.add_format({'border': 1, 'align': 'center', 'num_format': '0.00'})
+            four_digit_fmt = workbook.add_format({'border': 1, 'align': 'center', 'num_format': '0.0000'})
 
-            # 1&2. 시료 정보
+            # 1&2. 시료 정보 (MW는 2자리)
             worksheet.write(0, 0, "1&2. Precursor Info", title_fmt)
             for c, h in enumerate(["Precursor", "MW", "Eff_MW"]): worksheet.write(1, c, h, head_fmt)
             for r, (p_name, vals) in enumerate(precursor_info.items(), start=2):
-                worksheet.write(r, 0, p_name, cell_fmt); worksheet.write(r, 1, vals["MW"], cell_fmt); worksheet.write(r, 2, vals["Eff_MW"], cell_fmt)
+                worksheet.write(r, 0, p_name, mw_fmt); worksheet.write(r, 1, vals["MW"], mw_fmt); worksheet.write(r, 2, vals["Eff_MW"], mw_fmt)
 
-            # 3. Weighing Recipes
+            # 3. Weighing Recipes (4자리)
             start_col = 4
             worksheet.write(0, start_col, "3. Weighing Recipes (g)", title_fmt)
             df_weights = pd.DataFrame(weight_rows)
             for c, col_name in enumerate(df_weights.columns):
                 worksheet.write(1, start_col + c, col_name, head_fmt)
                 for r, val in enumerate(df_weights[col_name], start=2):
-                    worksheet.write(r, start_col + c, val if pd.notna(val) else "-", cell_fmt)
+                    fmt = four_digit_fmt if c > 0 else mw_fmt # Sample Name 외에는 4자리
+                    worksheet.write(r, start_col + c, val if pd.notna(val) else "-", fmt)
 
-            # 4. Composition Indices (원소명으로 표시)
+            # 4. Composition Indices (4자리)
             idx_start_row = len(df_weights) + 4
             worksheet.write(idx_start_row, start_col, "4. Composition Indices (By Element)", title_fmt)
             df_indices = pd.DataFrame(index_rows)
             for c, col_name in enumerate(df_indices.columns):
                 worksheet.write(idx_start_row + 1, start_col + c, col_name, head_fmt)
                 for r, val in enumerate(df_indices[col_name], start=idx_start_row + 2):
-                    worksheet.write(r, start_col + c, val if pd.notna(val) else "-", cell_fmt)
+                    fmt = four_digit_fmt if c > 0 else mw_fmt
+                    worksheet.write(r, start_col + c, val if pd.notna(val) else "-", fmt)
 
-            # [자동 열 너비 조절 로직]
-            # 모든 데이터를 순회하며 가장 긴 텍스트의 길이를 계산하여 열 너비 설정
-            all_dfs = [pd.DataFrame([{"Precursor": k, **v} for k, v in precursor_info.items()]), df_weights, df_indices]
-            # 편의상 전체 시트의 열 너비를 내용에 맞춰 조정
-            for i, col in enumerate(df_weights.columns):
-                column_len = max(df_weights[col].astype(str).map(len).max(), len(col)) + 2
-                worksheet.set_column(start_col + i, start_col + i, column_len)
-            
-            # 앞쪽 시료 정보 열 너비도 조정
-            worksheet.set_column(0, 0, 20) # Precursor 이름은 보통 길어서 20으로 고정
-            worksheet.set_column(1, 2, 10) # MW 등은 10으로 고정
+            # 자동 너비 조절
+            worksheet.set_column(0, 0, 20); worksheet.set_column(1, 2, 10); worksheet.set_column(4, 25, 18)
 
-        st.download_button(label="📥 최종 보고서 엑셀 다운로드", data=output.getvalue(), file_name="AECSL_Auto_Recipe.xlsx", use_container_width=True)
+        st.download_button(label="📥 최종 엑셀 보고서 다운로드", data=output.getvalue(), file_name="AECSL_Auto_Recipe.xlsx", use_container_width=True)
