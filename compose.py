@@ -18,7 +18,7 @@ NITRATE_DB = {
     "La": {"name": "La(NO3)3·6H2O", "mw": 433.01, "n": 1}, "Sr": {"name": "Sr(NO3)2", "mw": 211.63, "n": 1},
     "Co": {"name": "Co(NO3)2·6H2O", "mw": 291.04, "n": 1}, "Fe": {"name": "Fe(NO3)3·9H2O", "mw": 404.00, "n": 1},
     "Pr": {"name": "Pr(NO3)3·6H2O", "mw": 435.01, "n": 1},
-    "Nd": {"name": "Nd(NO3)3·6H2O", "mw": 438.35, "n": 1}, # 추가됨
+    "Nd": {"name": "Nd(NO3)3·6H2O", "mw": 438.34, "n": 1}, # 추가됨
     "Mo": {"name": "(NH4)6Mo7O24·4H2O", "mw": 1235.86, "n": 7}, # 추가됨 (n=7 주의)
     "K":  {"name": "KNO3", "mw": 101.11, "n": 1}, "Ba": {"name": "Ba(NO3)2", "mw": 261.35, "n": 1},
     "Sc": {"name": "Sc(NO3)3·5H2O", "mw": 321.05, "n": 1}, "Ta": {"name": "Ta(OC2H5)5", "mw": 406.25, "n": 1},
