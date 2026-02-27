@@ -16,7 +16,7 @@ PRECURSORS_DB = {
 
 NITRATE_DB = {
     "La": {"name": "La(NO3)3·6H2O", "mw": 433.01, "n": 1}, "Sr": {"name": "Sr(NO3)2", "mw": 211.63, "n": 1},
-    "Co": {"name": "Co(NO3)2·6H2O", "mw": 291.04, "n": 1}, "Fe": {"name": "Fe(NO3)3·9H2O", "mw": 404.00, "n": 1},
+    "Co": {"name": "Co(NO3)2·6H2O", "mw": 290.93, "n": 1}, "Fe": {"name": "Fe(NO3)3·9H2O", "mw": 404.00, "n": 1},
     "Pr": {"name": "Pr(NO3)3·6H2O", "mw": 435.01, "n": 1},
     "Nd": {"name": "Nd(NO3)3·6H2O", "mw": 438.34, "n": 1}, # 추가됨
     "Mo": {"name": "(NH4)6Mo7O24·4H2O", "mw": 1235.86, "n": 7}, # 추가됨 (n=7 주의)
