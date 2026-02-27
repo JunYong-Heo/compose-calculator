@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import io
 
-# 1. 시약 데이터베이스 설정 (기본값)
+# 1. 시약 데이터베이스 설정
 PRECURSORS_DB = {
     "Ba": {"name": "BaCO3", "mw": 197.34, "n": 1}, "Sr": {"name": "SrCO3", "mw": 147.63, "n": 1},
     "Sc": {"name": "Sc2O3", "mw": 137.91, "n": 2}, "Ta": {"name": "Ta2O5", "mw": 441.893, "n": 2},
@@ -51,7 +51,6 @@ def generate_excel_final(recipes, mode="Oxide"):
         f_fmt = workbook.add_format({'border': 1, 'align': 'center', 'num_format': '0.0000'})
         n_fmt = workbook.add_format({'bold': True, 'font_color': 'red'})
 
-        # Precursor Info
         worksheet.write(0, 0, "1&2. Precursor Info", t_fmt)
         for c, h in enumerate(["Precursor", "MW", "n"]): worksheet.write(1, c, h, h_fmt)
         info_dict = {}
@@ -114,14 +113,19 @@ with tab1:
         
         if sel:
             st.markdown("#### 📏 시약별 분자량(MW) 확인 및 수정")
-            mw_cols = st.columns(len(sel))
             current_mw = {}
-            for i, e in enumerate(sel):
-                current_mw[e] = mw_cols[i].number_input(f"{e} MW", value=float(PRECURSORS_DB[e]['mw']), format="%.3f", key=f"ox_mw_{e}")
+            # 가독성을 위해 3개씩 끊어서 컬럼 배치
+            for i in range(0, len(sel), 3):
+                row_cols = st.columns(3)
+                for j in range(3):
+                    if i + j < len(sel):
+                        e = sel[i + j]
+                        formula = PRECURSORS_DB[e]['name']
+                        current_mw[e] = row_cols[j].number_input(f"{e} ({formula}) MW", value=float(PRECURSORS_DB[e]['mw']), format="%.3f", key=f"ox_mw_{e}")
             
             st.markdown("#### 🔢 조성 계수(Index) 입력")
             idx_cols = st.columns(len(sel))
-            inds = {e: idx_cols[i].number_input(f"{e} Index", value=1.0, format="%.4f", key=f"ov{e}") for i, e in enumerate(sel)}
+            inds = {e: idx_cols[k].number_input(f"{e} Idx", value=1.0, format="%.4f", key=f"ov{e}") for k, e in enumerate(sel)}
             
             if sum(inds.values()) % 1 != 0: st.warning(f"⚠️ 조성 합계: {sum(inds.values()):g}")
             
@@ -149,14 +153,18 @@ with tab2:
         
         if sel:
             st.markdown("#### 📏 시약별 분자량(MW) 확인 및 수정")
-            mw_cols = st.columns(len(sel))
             current_mw_ni = {}
-            for i, e in enumerate(sel):
-                current_mw_ni[e] = mw_cols[i].number_input(f"{e} MW", value=float(NITRATE_DB[e]['mw']), format="%.3f", key=f"ni_mw_{e}")
+            for i in range(0, len(sel), 3):
+                row_cols = st.columns(3)
+                for j in range(3):
+                    if i + j < len(sel):
+                        e = sel[i + j]
+                        formula = NITRATE_DB[e]['name']
+                        current_mw_ni[e] = row_cols[j].number_input(f"{e} ({formula}) MW", value=float(NITRATE_DB[e]['mw']), format="%.3f", key=f"ni_mw_{e}")
 
             st.markdown("#### 🔢 조성 계수(Index) 입력")
             idx_cols = st.columns(len(sel))
-            inds = {e: idx_cols[i].number_input(f"{e} Index", value=1.0 if i==0 else 0.5, format="%.4f", key=f"nv{e}") for i, e in enumerate(sel)}
+            inds = {e: idx_cols[k].number_input(f"{e} Idx", value=1.0 if k==0 else 0.5, format="%.4f", key=f"nv{e}") for k, e in enumerate(sel)}
             
             if sum(inds.values()) % 1 != 0: st.warning(f"⚠️ 조성 합계: {sum(inds.values()):g}")
             
@@ -169,9 +177,7 @@ with tab2:
                 if ba_extra < -0.0001:
                     st.error(f"❌ BaF2 유래 Ba({ba_from_f:g})가 목표({ba_target:g})를 초과합니다.")
                 else:
-                    # 유효 FW 계산 (수정된 MW 반영)
                     fw = sum(inds[e]*(current_mw_ni[e]/NITRATE_DB[e]['n']) for e in sel if e not in ["Ba", "F"])
-                    # BaF2는 F기준 n=2, Ba(NO3)2는 Ba기준 n=1
                     fw += (ba_from_f * current_mw_ni.get("F", 175.32)/2) + (max(0, ba_extra) * current_mw_ni.get("Ba", 261.35))
                     
                     molar_scale = mass / fw
