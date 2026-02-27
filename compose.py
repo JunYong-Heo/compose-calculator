@@ -3,23 +3,23 @@ import pandas as pd
 import io
 
 # 1. 시약 데이터베이스 설정
-# Oxide SSR용 전구체 (Pr6O11 추가)
 PRECURSORS_DB = {
     "Ba": {"name": "BaCO3", "mw": 197.34, "n": 1}, "Sr": {"name": "SrCO3", "mw": 147.63, "n": 1},
     "Sc": {"name": "Sc2O3", "mw": 137.91, "n": 2}, "Ta": {"name": "Ta2O5", "mw": 441.893, "n": 2},
     "Co": {"name": "Co3O4", "mw": 240.8,  "n": 3}, "Ni": {"name": "NiO",   "mw": 74.71,  "n": 1},
-    "Pr": {"name": "Pr6O11", "mw": 1021.44, "n": 6}, # 추가됨 (n=6 주의)
+    "Pr": {"name": "Pr6O11", "mw": 1021.44, "n": 6},
     "Hf": {"name": "HfO2",  "mw": 210.49, "n": 1}, "Mo": {"name": "MoO2",  "mw": 127.94, "n": 1},
     "Nb": {"name": "Nb2O5", "mw": 265.81, "n": 2}, "Ti": {"name": "TiO2",  "mw": 79.9,   "n": 1},
     "W":  {"name": "WO3",   "mw": 231.84, "n": 1}, "Y":  {"name": "Y2O3",  "mw": 225.81, "n": 2},
     "Zr": {"name": "ZrO2",  "mw": 123.22, "n": 1}
 }
 
-# Nitrate/Sol-Gel용 시약 (Pr(NO3)3 추가)
 NITRATE_DB = {
     "La": {"name": "La(NO3)3·6H2O", "mw": 433.01, "n": 1}, "Sr": {"name": "Sr(NO3)2", "mw": 211.63, "n": 1},
     "Co": {"name": "Co(NO3)2·6H2O", "mw": 291.04, "n": 1}, "Fe": {"name": "Fe(NO3)3·9H2O", "mw": 404.00, "n": 1},
-    "Pr": {"name": "Pr(NO3)3·6H2O", "mw": 435.01, "n": 1}, # 추가됨
+    "Pr": {"name": "Pr(NO3)3·6H2O", "mw": 435.01, "n": 1},
+    "Nd": {"name": "Nd(NO3)3·6H2O", "mw": 438.35, "n": 1}, # 추가됨
+    "Mo": {"name": "(NH4)6Mo7O24·4H2O", "mw": 1235.86, "n": 7}, # 추가됨 (n=7 주의)
     "K":  {"name": "KNO3", "mw": 101.11, "n": 1}, "Ba": {"name": "Ba(NO3)2", "mw": 261.35, "n": 1},
     "Sc": {"name": "Sc(NO3)3·5H2O", "mw": 321.05, "n": 1}, "Ta": {"name": "Ta(OC2H5)5", "mw": 406.25, "n": 1},
     "Ag": {"name": "AgNO3", "mw": 169.87, "n": 1}, "Ca": {"name": "Ca(NO3)2", "mw": 236.15, "n": 1},
@@ -118,9 +118,10 @@ with tab1:
             inds = {e: cols[i].number_input(f"{e}", value=1.0, format="%.4f", key=f"ov{e}") for i, e in enumerate(sel)}
             if sum(inds.values()) % 1 != 0: st.warning(f"⚠️ 조성 합계: {sum(inds.values()):g}")
             if st.button("추가", key="ob"):
+                final_name = name_in if name_in.strip() else generate_formula(inds)
                 fw = sum(inds[e]*(PRECURSORS_DB[e]['mw']/PRECURSORS_DB[e]['n']) for e in sel)
                 data = [{"Element": e, "Raw_Element": e, "Precursor": PRECURSORS_DB[e]['name'], "MW": PRECURSORS_DB[e]['mw'], "Index": inds[e], "Weight": (inds[e]*(PRECURSORS_DB[e]['mw']/PRECURSORS_DB[e]['n'])/fw)*mass} for e in sel]
-                st.session_state.oxide_recipes.append({"name": name_in if name_in.strip() else generate_formula(inds), "data": pd.DataFrame(data), "total": mass})
+                st.session_state.oxide_recipes.append({"name": final_name, "data": pd.DataFrame(data), "total": mass})
                 st.rerun()
     for i, r in enumerate(st.session_state.oxide_recipes):
         st.subheader(f"{i+1}. {r['name']}"); st.table(r['data'][["Element", "Precursor", "MW", "Index", "Weight"]])
