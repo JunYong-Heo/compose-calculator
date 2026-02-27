@@ -3,23 +3,27 @@ import pandas as pd
 import io
 
 # 1. 시약 데이터베이스 설정
+# Oxide SSR용 전구체 (Pr6O11 추가)
 PRECURSORS_DB = {
     "Ba": {"name": "BaCO3", "mw": 197.34, "n": 1}, "Sr": {"name": "SrCO3", "mw": 147.63, "n": 1},
     "Sc": {"name": "Sc2O3", "mw": 137.91, "n": 2}, "Ta": {"name": "Ta2O5", "mw": 441.893, "n": 2},
     "Co": {"name": "Co3O4", "mw": 240.8,  "n": 3}, "Ni": {"name": "NiO",   "mw": 74.71,  "n": 1},
+    "Pr": {"name": "Pr6O11", "mw": 1021.44, "n": 6}, # 추가됨 (n=6 주의)
     "Hf": {"name": "HfO2",  "mw": 210.49, "n": 1}, "Mo": {"name": "MoO2",  "mw": 127.94, "n": 1},
     "Nb": {"name": "Nb2O5", "mw": 265.81, "n": 2}, "Ti": {"name": "TiO2",  "mw": 79.9,   "n": 1},
     "W":  {"name": "WO3",   "mw": 231.84, "n": 1}, "Y":  {"name": "Y2O3",  "mw": 225.81, "n": 2},
     "Zr": {"name": "ZrO2",  "mw": 123.22, "n": 1}
 }
 
+# Nitrate/Sol-Gel용 시약 (Pr(NO3)3 추가)
 NITRATE_DB = {
     "La": {"name": "La(NO3)3·6H2O", "mw": 433.01, "n": 1}, "Sr": {"name": "Sr(NO3)2", "mw": 211.63, "n": 1},
     "Co": {"name": "Co(NO3)2·6H2O", "mw": 291.04, "n": 1}, "Fe": {"name": "Fe(NO3)3·9H2O", "mw": 404.00, "n": 1},
+    "Pr": {"name": "Pr(NO3)3·6H2O", "mw": 435.01, "n": 1}, # 추가됨
     "K":  {"name": "KNO3", "mw": 101.11, "n": 1}, "Ba": {"name": "Ba(NO3)2", "mw": 261.35, "n": 1},
     "Sc": {"name": "Sc(NO3)3·5H2O", "mw": 321.05, "n": 1}, "Ta": {"name": "Ta(OC2H5)5", "mw": 406.25, "n": 1},
     "Ag": {"name": "AgNO3", "mw": 169.87, "n": 1}, "Ca": {"name": "Ca(NO3)2", "mw": 236.15, "n": 1},
-    "Li": {"name": "LiNO3", "mw": 68.95, "n": 1}, "Na": {"name": "NaNO3", "mw": 84.99, "n": 1},
+    "Li": {"name": "LiNO3", "mw": 68.95,  "n": 1}, "Na": {"name": "NaNO3", "mw": 84.99,  "n": 1},
     "Cs": {"name": "CsNO3", "mw": 194.91, "n": 1}, "F": {"name": "BaF2", "mw": 175.32, "n": 2}
 }
 
@@ -31,7 +35,7 @@ if 'nitrate_recipes' not in st.session_state: st.session_state.nitrate_recipes =
 
 def generate_formula(inputs):
     formula = ""
-    for el, val in inputs.items():
+    for el, val in sorted(inputs.items()):
         if val > 0:
             idx_str = "" if val == 1.0 else f"{val:g}"
             formula += f"{el}{idx_str}"
@@ -53,7 +57,8 @@ def generate_excel_final(recipes, p_db, mode="Oxide"):
         info_data = {}
         for r_item in recipes:
             for _, row in r_item['data'].iterrows():
-                p_info = p_db.get(row['Raw_Element'], p_db.get(row['Element']))
+                key = row['Raw_Element']
+                p_info = p_db.get(key)
                 info_data[row['Precursor']] = {"mw": row['MW'], "eff": row['MW']/p_info['n']}
         for r, (p_name, v) in enumerate(info_data.items(), start=2):
             worksheet.write(r, 0, p_name, m_fmt); worksheet.write(r, 1, v['mw'], m_fmt); worksheet.write(r, 2, v['eff'], m_fmt)
@@ -165,6 +170,6 @@ with tab2:
         st.subheader(f"{i+1}. {r['name']}"); st.table(r['data'][["Element", "Precursor", "MW", "Index", "Weight"]])
         c1, c2, c3 = st.columns(3)
         c1.metric("EDTA (g)", f"{r['edta']:.4f}"); c2.metric("Citric Acid (g)", f"{r['ca']:.4f}"); c3.metric("NH4OH (mL)", f"{r['nh4oh']:.2f}")
-        st.info("💡 **안내:** 암모니아는 pH 미터를 사용하여 pH 8.0이 될 때까지 소량씩 투입하십시오.")
+        st.info("💡 **안내:** 암모니아는 이론치입니다. pH 미터로 pH 8.0을 확인하며 천천히 투입하십시오.")
         if st.button("삭제", key=f"nd{i}"): st.session_state.nitrate_recipes.pop(i); st.rerun()
     if st.session_state.nitrate_recipes: st.download_button("📥 엑셀 다운로드", generate_excel_final(st.session_state.nitrate_recipes, NITRATE_DB, "Nitrate"), "Nitrate_Recipes.xlsx")
