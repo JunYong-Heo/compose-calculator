@@ -27,7 +27,7 @@ NITRATE_DB = {
 st.set_page_config(page_title="AECSL Smart Calc", layout="wide")
 st.title("🔬 AECSL Advanced Batch Manager")
 
-# 세션 상태 초기화
+# 세션 상태 초기화 (중요)
 if 'oxide_recipes' not in st.session_state: st.session_state.oxide_recipes = []
 if 'nitrate_recipes' not in st.session_state: st.session_state.nitrate_recipes = []
 
@@ -35,107 +35,141 @@ if 'nitrate_recipes' not in st.session_state: st.session_state.nitrate_recipes =
 tab1, tab2 = st.tabs(["🔥 Oxide SSR Method", "💧 Nitrate Sol-Gel Method"])
 
 # ==========================================
-# [TAB 1] Oxide 합성 (기존 로직)
+# [TAB 1] Oxide 합성
 # ==========================================
 with tab1:
     st.header("Oxide 계열 시약 합성")
     with st.expander("➕ Oxide 레시피 추가하기", expanded=True):
         col_n, col_m = st.columns([2, 1])
-        s_name = col_n.text_input("샘플 이름", key="ox_name")
-        t_mass = col_m.number_input("목표 질량 (g)", value=3.0, step=0.1, key="ox_mass")
+        with col_n: ox_name_in = st.text_input("샘플 이름", key="ox_name_input")
+        with col_m: ox_mass_in = st.number_input("목표 질량 (g)", value=3.0, step=0.1, key="ox_mass_input")
         
-        selected_els = st.multiselect("원소 선택", options=list(PRECURSORS_DB.keys()), key="ox_el")
-        if selected_els:
-            current_inputs = {}
-            idx_cols = st.columns(len(selected_els))
-            for i, el in enumerate(selected_els):
-                current_inputs[el] = idx_cols[i].number_input(f"{el} Index", value=1.0, format="%.4f", key=f"ox_idx_{el}")
+        ox_options = list(PRECURSORS_DB.keys())
+        selected_ox = st.multiselect("원소 선택", options=ox_options, key="ox_select")
+        
+        if selected_ox:
+            st.write("조성 계수 입력:")
+            ox_idx_cols = st.columns(len(selected_ox))
+            ox_inputs = {}
+            for i, el in enumerate(selected_ox):
+                ox_inputs[el] = ox_idx_cols[i].number_input(f"{el} Index", value=1.0, format="%.4f", key=f"ox_val_{el}")
             
             if st.button("🚀 Oxide 레시피 추가"):
-                total_fw = sum(c * (PRECURSORS_DB[e]["mw"]/PRECURSORS_DB[e]["n"]) for e, c in current_inputs.items())
-                temp_list = []
-                for e, c in current_inputs.items():
-                    db = PRECURSORS_DB[e]
+                # 계산 로직
+                total_fw = sum(coeff * (PRECURSORS_DB[el]["mw"]/PRECURSORS_DB[el]["n"]) for el, coeff in ox_inputs.items())
+                temp_data = []
+                for el, coeff in ox_inputs.items():
+                    db = PRECURSORS_DB[el]
                     eff_mw = db["mw"]/db["n"]
-                    w = (c * eff_mw / total_fw) * t_mass
-                    temp_list.append({"Element": e, "Precursor": db["name"], "MW": db["mw"], "Index": c, "Weight": w})
-                st.session_state.oxide_recipes.append({"name": s_name, "data": pd.DataFrame(temp_list), "total": t_mass})
+                    weight = (coeff * eff_mw / total_fw) * ox_mass_in
+                    temp_data.append({"Element": el, "Precursor": db["name"], "MW": db["mw"], "Index": coeff, "Weight": weight})
+                
+                # 자동 이름 생성
+                final_name = ox_name_in if ox_name_in else "".join([f"{e}{c:g}" for e, c in ox_inputs.items()])
+                st.session_state.oxide_recipes.append({"name": final_name, "data": pd.DataFrame(temp_data), "total": ox_mass_in})
                 st.rerun()
 
-    # 리스트 출력 및 삭제 로직 (생략 - 기존과 동일)
+    # Oxide 저장 목록 표시
+    if st.session_state.oxide_recipes:
+        st.subheader(f"📋 Oxide 관리 목록 ({len(st.session_state.oxide_recipes)})")
+        for i, r in enumerate(st.session_state.oxide_recipes):
+            with st.container():
+                c_title, c_del = st.columns([5, 1])
+                c_title.markdown(f"**{i+1}. {r['name']}** ({r['total']}g)")
+                if c_del.button("삭제", key=f"del_ox_{i}"):
+                    st.session_state.oxide_recipes.pop(i)
+                    st.rerun()
+                st.dataframe(r['data'][["Element", "Precursor", "Index", "Weight"]], use_container_width=True)
 
 # ==========================================
-# [TAB 2] Nitrate 합성 (신규 로직)
+# [TAB 2] Nitrate 합성
 # ==========================================
 with tab2:
     st.header("Nitrate 계열 (EDTA-Citrate) 합성")
     with st.expander("➕ Nitrate 레시피 추가하기", expanded=True):
         col_n, col_m = st.columns([2, 1])
-        s_name_nit = col_n.text_input("샘플 이름", key="nit_name")
-        t_mass_nit = col_m.number_input("목표 생성물 질량 (g)", value=5.0, step=0.1, key="nit_mass")
+        with col_n: nit_name_in = st.text_input("샘플 이름", key="nit_name_input")
+        with col_m: nit_mass_in = st.number_input("목표 생성물 질량 (g)", value=5.0, step=0.1, key="nit_mass_input")
         
-        selected_els_nit = st.multiselect("원소 선택", options=list(NITRATE_DB.keys()), key="nit_el")
-        if selected_els_nit:
-            current_inputs_nit = {}
-            idx_cols_nit = st.columns(len(selected_els_nit))
-            for i, el in enumerate(selected_els_nit):
-                current_inputs_nit[el] = idx_cols_nit[i].number_input(f"{el} Index", value=1.0, format="%.4f", key=f"nit_idx_{el}")
+        nit_options = list(NITRATE_DB.keys())
+        selected_nit = st.multiselect("원소 선택", options=nit_options, key="nit_select")
+        
+        if selected_nit:
+            st.write("조성 계수 입력:")
+            nit_idx_cols = st.columns(len(selected_nit))
+            nit_inputs = {}
+            for i, el in enumerate(selected_nit):
+                nit_inputs[el] = nit_idx_cols[i].number_input(f"{el} Index", value=1.0, format="%.4f", key=f"nit_val_{el}")
             
             if st.button("🚀 Nitrate 레시피 추가"):
-                # 계산 로직
-                total_fw = sum(c * (NITRATE_DB[e]["mw"]/NITRATE_DB[e]["n"]) for e, c in current_inputs_nit.items())
-                total_metal_moles = t_mass_nit / total_fw # 전체 스케일 결정하는 몰수
+                # 1. 시약 투입 질량 계산
+                total_fw = sum(coeff * (NITRATE_DB[el]["mw"]/NITRATE_DB[el]["n"]) for el, coeff in nit_inputs.items())
+                # (중요) 금속 총 몰수 계산: (목표질량 / 전체FW) * 원자 Index 합
+                total_molar_scale = nit_mass_in / total_fw
+                sum_indices = sum(nit_inputs.values())
+                total_metal_moles = total_molar_scale * sum_indices
                 
-                temp_list = []
-                for e, c in current_inputs_nit.items():
-                    db = NITRATE_DB[e]
+                temp_data = []
+                for el, coeff in nit_inputs.items():
+                    db = NITRATE_DB[el]
                     eff_mw = db["mw"]/db["n"]
-                    w = (c * eff_mw / total_fw) * t_mass_nit
-                    temp_list.append({"Element": e, "Precursor": db["name"], "MW": db["mw"], "Index": c, "Weight": w})
+                    weight = (coeff * eff_mw / total_fw) * nit_mass_in
+                    temp_data.append({"Element": el, "Precursor": db["name"], "MW": db["mw"], "Index": coeff, "Weight": weight})
                 
-                edta_w = (sum(current_inputs_nit.values()) * total_metal_moles) * 292.24 * 1.0
-                ca_w = (sum(current_inputs_nit.values()) * total_metal_moles) * 210.14 * 2.0
+                # 2. EDTA / CA 계산 (총 몰수 기준)
+                edta_w = total_metal_moles * 292.24 * 1.0  # 1:1
+                ca_w = total_metal_moles * 210.14 * 2.0    # 1:2
                 
+                final_name = nit_name_in if nit_name_in else "".join([f"{e}{c:g}" for e, c in nit_inputs.items()])
                 st.session_state.nitrate_recipes.append({
-                    "name": s_name_nit, "data": pd.DataFrame(temp_list), 
-                    "total": t_mass_nit, "edta": edta_w, "ca": ca_w
+                    "name": final_name, "data": pd.DataFrame(temp_data), 
+                    "total": nit_mass_in, "edta": edta_w, "ca": ca_w
                 })
                 st.rerun()
 
-    # 결과 디스플레이
-    for i, r in enumerate(st.session_state.nitrate_recipes):
-        st.subheader(f"{i+1}. {r['name']}")
-        st.table(r['data'][["Element", "Precursor", "Weight"]])
-        c1, c2, c3 = st.columns(3)
-        c1.write(f"**EDTA:** {r['edta']:.4f} g")
-        c2.write(f"**Citric Acid:** {r['ca']:.4f} g")
-        c3.warning("pH 8.0 (Ammonia)")
+    # Nitrate 저장 목록 표시
+    if st.session_state.nitrate_recipes:
+        st.subheader(f"📋 Nitrate 관리 목록 ({len(st.session_state.nitrate_recipes)})")
+        for i, r in enumerate(st.session_state.nitrate_recipes):
+            with st.container():
+                c_title, c_del = st.columns([5, 1])
+                c_title.markdown(f"**{i+1}. {r['name']}** ({r['total']}g)")
+                if c_del.button("삭제", key=f"del_nit_{i}"):
+                    st.session_state.nitrate_recipes.pop(i)
+                    st.rerun()
+                
+                st.dataframe(r['data'][["Element", "Precursor", "Index", "Weight"]], use_container_width=True)
+                
+                res1, res2, res3 = st.columns(3)
+                res1.success(f"🧪 **EDTA:** {r['edta']:.4f} g")
+                res2.success(f"🍋 **Citric Acid:** {r['ca']:.4f} g")
+                res3.warning("💧 **pH 조절:** pH 8.0 (NH4OH)")
+                st.write("---")
 
 # ==========================================
-# 📊 공통 엑셀 다운로드 (엑셀 시트 정리)
+# 📊 통합 엑셀 다운로드 로직
 # ==========================================
 if st.session_state.oxide_recipes or st.session_state.nitrate_recipes:
     st.divider()
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        workbook = writer.book
-        num_fmt = workbook.add_format({'num_format': '0.0000', 'border': 1})
-        head_fmt = workbook.add_format({'bold': True, 'bg_color': '#D7E4BC', 'border': 1})
-
-        # 1. Oxide 시트
         if st.session_state.oxide_recipes:
-            ox_df = pd.concat([r['data'].assign(Sample=r['name']) for r in st.session_state.oxide_recipes])
-            ox_df.to_excel(writer, sheet_name='Oxide_Batch', index=False)
-
-        # 2. Nitrate 시트 (EDTA/CA 포함)
+            ox_combined = []
+            for r in st.session_state.oxide_recipes:
+                df = r['data'].copy()
+                df['Sample_Name'] = r['name']
+                ox_combined.append(df)
+            pd.concat(ox_combined).to_excel(writer, sheet_name='Oxide_Recipe', index=False)
+            
         if st.session_state.nitrate_recipes:
-            nit_rows = []
+            nit_combined = []
             for r in st.session_state.nitrate_recipes:
-                for _, row in r['data'].iterrows():
-                    nit_rows.append({
-                        "Sample": r['name'], "Element": row['Element'], "Precursor": row['Precursor'],
-                        "Weight(g)": row['Weight'], "EDTA(g)": r['edta'], "CA(g)": r['ca'], "pH": 8.0
-                    })
-            pd.DataFrame(nit_rows).to_excel(writer, sheet_name='Nitrate_Batch', index=False)
+                df = r['data'].copy()
+                df['Sample_Name'] = r['name']
+                df['EDTA_g'] = r['edta']
+                df['CA_g'] = r['ca']
+                df['Target_pH'] = 8.0
+                nit_combined.append(df)
+            pd.concat(nit_combined).to_excel(writer, sheet_name='Nitrate_Recipe', index=False)
 
-    st.download_button("📥 통합 엑셀 보고서 다운로드", data=output.getvalue(), file_name="AECSL_All_Recipes.xlsx", use_container_width=True)
+    st.download_button("📥 최종 엑셀 보고서 다운로드", data=output.getvalue(), file_name="AECSL_Batch_Report.xlsx", use_container_width=True)
